@@ -75,7 +75,7 @@ glam = "0.33"
 input = { version = "0.10.0", features = ["libinput_1_21"] }
 keyframe = { version = "1.1.1", default-features = false }
 libc = "0.2.189"
-libdisplay-info = "0.3.0"
+libdisplay-info = { version = "0.3.0", features = ["v0_2"] }
 log = { version = "0.4", features = ["max_level_trace", "release_max_level_debug"] }
 niri-config = { version = "26.4.0", path = "niri-config" }
 niri-ipc = { version = "26.4.0", path = "niri-ipc", features = ["clap"] }
@@ -194,8 +194,8 @@ assets = [
     ["resources/niri-shutdown.target", "/usr/lib/systemd/user/", "644"],
 ]
 
-# Fork-only: Smithay with SeatState::new_wl_seat_with_filter() for the agent seat. When upstream
-# bumps the Smithay rev above, rebase the seat-global-filter commit onto it and update this rev.
+# Local Smithay with connector color state + wp-color-management-v1 (HDR) and the agent seat
+# filter. Rebase both onto the pinned upstream rev and push to the fork before switching back.
 [patch."https://github.com/Smithay/smithay.git"]
-smithay = { git = "https://github.com/SHORiN-KiWATA/smithay.git", rev = "7e4a1baccd6f9f752a19a4aea194d5f6403bb588" }
-smithay-drm-extras = { git = "https://github.com/SHORiN-KiWATA/smithay.git", rev = "7e4a1baccd6f9f752a19a4aea194d5f6403bb588" }
+smithay = { path = "../smithay-hdr" }
+smithay-drm-extras = { path = "../smithay-hdr/smithay-drm-extras" }

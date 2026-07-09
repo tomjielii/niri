@@ -172,7 +172,9 @@ use crate::protocols::mutter_x11_interop::MutterX11InteropManagerState;
 use crate::protocols::output_management::OutputManagementManagerState;
 use crate::protocols::screencopy::{Screencopy, ScreencopyBuffer, ScreencopyManagerState};
 use crate::protocols::virtual_pointer::VirtualPointerManagerState;
-use crate::render_helpers::blend::BlendSurfaceRenderElement;
+use crate::render_helpers::blend::{
+    set_sdr_capture_blend, BlendSurfaceRenderElement, DEFAULT_REFERENCE_LUMINANCE,
+};
 use crate::render_helpers::blur::BlurOptions;
 use crate::render_helpers::debug::push_opaque_regions;
 use crate::render_helpers::primary_gpu_texture::PrimaryGpuTextureRenderElement;
@@ -3369,6 +3371,13 @@ impl Niri {
                 }
             }
         }
+    }
+
+    pub(crate) fn output_capture_reference_luminance(&self, output: &Output) -> f64 {
+        let desc = self.output_blend_description(output);
+        desc.luminances
+            .map(|(_, _, reference)| reference as f64)
+            .unwrap_or(DEFAULT_REFERENCE_LUMINANCE)
     }
 
     /// The image description we'd prefer a window to use, given the output it is on.
@@ -7605,12 +7614,15 @@ impl Niri {
 
                         screencopy.damage(damages);
 
+                        let reference_luminance =
+                            self.output_capture_reference_luminance(screencopy.output());
                         let render_result = Self::render_for_screencopy_internal(
                             renderer,
                             damage_tracker,
                             &elements,
                             states,
                             screencopy,
+                            reference_luminance,
                         );
                         match render_result {
                             Ok(sync) => {
@@ -7663,6 +7675,7 @@ impl Niri {
             elements.push(elem);
         });
 
+        let reference_luminance = self.output_capture_reference_luminance(output);
         let Some(damage_tracker) = self.screencopy_state.damage_tracker(manager) else {
             error!("screencopy queue must not be deleted as long as frames exist");
             bail!("screencopy queue missing");
@@ -7676,6 +7689,7 @@ impl Niri {
             &elements,
             states,
             &screencopy,
+            reference_luminance,
         );
         let res = res.map(|sync| screencopy.submit_after_sync(false, sync, &self.event_loop));
 
@@ -7702,6 +7716,7 @@ impl Niri {
         let size = mode.size;
         let scale: Scale<f64> = output.current_scale().fractional_scale().into();
         let transform = output.current_transform();
+        let reference_luminance = self.output_capture_reference_luminance(output);
 
         // Sessions with a single output only differ by whether they capture the
         // cursor, so at most two renders are needed regardless of how many
@@ -7783,10 +7798,15 @@ impl Niri {
             };
 
             let res = match capture_buffer {
-                CaptureBuffer::Dma(dmabuf) => {
-                    render_to_dmabuf(renderer, &mut s.damage_tracker, dmabuf, elements, states)
-                        .map(Some)
-                }
+                CaptureBuffer::Dma(dmabuf) => render_to_dmabuf(
+                    renderer,
+                    &mut s.damage_tracker,
+                    dmabuf,
+                    elements,
+                    states,
+                    reference_luminance,
+                )
+                .map(Some),
                 CaptureBuffer::Shm => render_to_shm(
                     renderer,
                     &mut s.damage_tracker,
@@ -7794,6 +7814,7 @@ impl Niri {
                     wl_shm::Format::Xrgb8888,
                     elements,
                     states,
+                    reference_luminance,
                 )
                 .map(|()| None),
             };
@@ -7837,6 +7858,7 @@ impl Niri {
         let _span = tracy_client::span!("Niri::render_for_image_copy_cursor_capture");
 
         let scale: Scale<f64> = output.current_scale().fractional_scale().into();
+        let reference_luminance = self.output_capture_reference_luminance(output);
 
         // The cursor render is the same for all sessions on the output.
         let mut cached_elements = None;
@@ -7905,6 +7927,7 @@ impl Niri {
                 wl_shm::Format::Argb8888,
                 elements,
                 states,
+                reference_luminance,
             );
             match res {
                 Ok(()) => {
@@ -8112,12 +8135,19 @@ impl Niri {
         elements: &[impl RenderElement<GlesRenderer>],
         states: RenderElementStates,
         screencopy: &Screencopy,
+        reference_luminance: f64,
     ) -> anyhow::Result<Option<SyncPoint>> {
         let sync = match screencopy.buffer() {
             ScreencopyBuffer::Dmabuf(dmabuf) => {
-                let sync =
-                    render_to_dmabuf(renderer, damage_tracker, dmabuf.clone(), elements, states)
-                        .context("error rendering to screencopy dmabuf")?;
+                let sync = render_to_dmabuf(
+                    renderer,
+                    damage_tracker,
+                    dmabuf.clone(),
+                    elements,
+                    states,
+                    reference_luminance,
+                )
+                .context("error rendering to screencopy dmabuf")?;
                 Some(sync)
             }
             ScreencopyBuffer::Shm(wl_buffer) => {
@@ -8128,6 +8158,7 @@ impl Niri {
                     wl_shm::Format::Xrgb8888,
                     elements,
                     states,
+                    reference_luminance,
                 )
                 .context("error rendering to screencopy shm buffer")?;
                 None
@@ -8334,6 +8365,7 @@ impl Niri {
         let size = transform.transform_size(size);
 
         let scale = Scale::from(output.current_scale().fractional_scale());
+        set_sdr_capture_blend(renderer, self.output_capture_reference_luminance(output));
         let ctx = RenderCtx {
             renderer,
             target: RenderTarget::ScreenCapture,
@@ -8436,6 +8468,7 @@ impl Niri {
         }
         let pointer_count = elements.len();
 
+        set_sdr_capture_blend(renderer, self.output_capture_reference_luminance(output));
         let ctx = RenderCtx {
             renderer,
             target: RenderTarget::ScreenCapture,
@@ -8749,6 +8782,7 @@ impl Niri {
             let size = transform.transform_size(size);
 
             let scale = output.current_scale().fractional_scale();
+            set_sdr_capture_blend(renderer, self.output_capture_reference_luminance(output));
             let ctx = RenderCtx {
                 renderer,
                 target: RenderTarget::ScreenCapture,

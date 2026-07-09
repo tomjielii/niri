@@ -2271,6 +2271,7 @@ impl Tty {
                     mastering_primaries: None,
                     luminances: None,
                     windows_scrgb: false,
+                    windows_bt2100: false,
                 });
                 ConnectorColorState {
                     colorspace: Colorspace::Bt2020Rgb,
@@ -4042,6 +4043,7 @@ mod tests {
             mastering_primaries: None,
             luminances: None,
             windows_scrgb: false,
+            windows_bt2100: false,
         };
         let edid = EdidHdrInfo {
             pq: true,
@@ -4109,6 +4111,7 @@ mod tests {
             mastering_primaries: None,
             luminances: None,
             windows_scrgb: false,
+            windows_bt2100: false,
         };
 
         // Without mastering primaries the infoframe carries the container primaries

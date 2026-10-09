@@ -148,6 +148,7 @@ impl Headless {
             RedrawState::Idle => unreachable!(),
             RedrawState::Queued => (),
             RedrawState::WaitingForVBlank { .. } => unreachable!(),
+            RedrawState::WaitingForFrameCompletion { .. } => unreachable!(),
             RedrawState::WaitingForEstimatedVBlank(_) => unreachable!(),
             RedrawState::WaitingForEstimatedVBlankAndQueued(_) => unreachable!(),
         }

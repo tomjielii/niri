@@ -26,16 +26,15 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 tracy-client = { version = "0.18.5", default-features = false }
 
 [workspace.dependencies.smithay]
-# version = "0.4.1"
-git = "https://github.com/Smithay/smithay.git"
-rev = "8a270232f1bfc416c781273c98a3f52a812a0bba"
+# Local checkout: pinned Smithay + the HDR/color-management series + the agent seat filter.
+# Switch back to git = "https://github.com/Smithay/smithay.git" + a rev once the series is
+# pushed to the fork.
+path = "../smithay-hdr"
 default-features = false
 
 [workspace.dependencies.smithay-drm-extras]
 # version = "0.1.0"
-git = "https://github.com/Smithay/smithay.git"
-rev = "8a270232f1bfc416c781273c98a3f52a812a0bba"
-# path = "../smithay/smithay-drm-extras"
+path = "../smithay-hdr/smithay-drm-extras"
 
 [package]
 name = "niri"
@@ -196,6 +195,3 @@ assets = [
 
 # Local Smithay with connector color state + wp-color-management-v1 (HDR) and the agent seat
 # filter. Rebase both onto the pinned upstream rev and push to the fork before switching back.
-[patch."https://github.com/Smithay/smithay.git"]
-smithay = { path = "../smithay-hdr" }
-smithay-drm-extras = { path = "../smithay-hdr/smithay-drm-extras" }

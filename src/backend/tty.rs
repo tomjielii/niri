@@ -807,7 +807,7 @@ impl Tty {
 
                     // Apply pending gamma changes and restore our existing gamma.
                     let device = self.devices.get_mut(&node).unwrap();
-                    for (crtc, surface) in device.surfaces.iter_mut() {
+                    for (_crtc, surface) in device.surfaces.iter_mut() {
                         // The connector color state (max bpc, HDR signalling) re-asserts itself
                         // via the compositor's pending state on the next commit; give a rejected
                         // state another chance after resume.
@@ -2139,7 +2139,7 @@ impl Tty {
             state @ RedrawState::WaitingForFrameCompletion { .. } => {
                 error!("received vblank while waiting for frame completion on {name}");
                 output_state.redraw_state = state;
-                return None;
+                return;
             }
             state @ (RedrawState::Idle
             | RedrawState::Queued
@@ -2160,7 +2160,7 @@ impl Tty {
 
         // Mark the last frame as submitted.
         match surface.compositor.frame_submitted() {
-            Ok(Some((mut feedback, target_presentation_time))) => {
+            Ok((mut feedback, target_presentation_time)) => {
                 let refresh = match refresh_interval {
                     Some(refresh) => {
                         if output_state.frame_clock.vrr() {
@@ -2192,7 +2192,6 @@ impl Tty {
                     );
                 }
             }
-            Ok(None) => (),
             Err(err) => {
                 warn!("error marking frame as submitted: {err}");
             }
@@ -2203,11 +2202,11 @@ impl Tty {
         let gamma_deferred = surface.pending_gamma_change.is_some();
         if gamma_deferred && !surface.compositor.post_blend_encode_owns_gamma() {
             let ramp = surface.pending_gamma_change.take().unwrap();
-            let ramp = ramp.as_deref();
             let res = if let Some(gamma_props) = &mut surface.gamma_props {
                 gamma_props.set_gamma(&device.drm, ramp)
             } else {
-                set_gamma_for_crtc(&device.drm, crtc, ramp)
+                let len = ramp.as_ref().map_or(0, |r| r.len() as u32);
+                set_gamma_for_crtc(&device.drm, crtc, len, ramp.as_deref())
             };
             if let Err(err) = res {
                 warn!("error applying deferred gamma change: {err:?}");
@@ -2453,7 +2452,18 @@ impl Tty {
             || surface
                 .gamma_props
                 .as_ref()
-                .is_some_and(|props| props.previous_blob.is_some());
+                .is_some_and(|props| {
+                    matches!(
+                        &props.mode,
+                        GammaMode::Lut {
+                            previous_blob: Some(_),
+                            ..
+                        } | GammaMode::Ctm {
+                            previous_blob: Some(_),
+                            ..
+                        }
+                    )
+                });
         let post_blend =
             (blend_hdr && !gamma_in_use && self.config.borrow().debug.scanout_post_blend_encode)
                 .then(|| blend::hdr_post_blend_encode(peak_luminance));
@@ -2635,15 +2645,6 @@ impl Tty {
 
                 // Stamp the frame's render fence onto the sampled buffers, so explicit-sync
                 // release points signal on GPU completion rather than on buffer replacement.
-                if niri.syncobj_state.is_some() && !res.is_empty {
-                    if let PrimaryPlaneElement::Swapchain(element) = &res.primary_element {
-                        let _span = tracy_client::span!("export release fence");
-                        if let Some(fence) = element.sync.export() {
-                            niri.stamp_release_fences(output, fence.as_fd());
-                        }
-                    }
-                }
-
                 niri.update_primary_scanout_output(output, &res.states);
                 if let Some(dmabuf_feedback) = surface.dmabuf_feedback.as_ref() {
                     niri.send_dmabuf_feedbacks(output, dmabuf_feedback, &res.states);

@@ -582,6 +582,26 @@ impl FrameBlendState {
     /// The curve parameter `v` is derived like KWin's `ColorTonemapper` so that
     /// `f(input_range) = output_range` (ranges relative to the reference white); the shader
     /// applies `f(l) = l * (1 + l*v) / (1 + l)` to the ICtCp intensity.
+    fn tonemap_values(
+        enabled: bool,
+        max_in: f64,
+        ref_lum: f64,
+        max_out: f64,
+    ) -> (f32, f32, f32, f32) {
+        if !enabled || ref_lum <= 0. || max_out <= 0. {
+            return (0.0, 0.0, 0.0, 0.0);
+        }
+        let input_range = max_in / ref_lum;
+        let output_range = max_out / ref_lum;
+        let v = tonemap_curve_v(input_range, output_range);
+        (
+            1.0,
+            v as f32,
+            (ref_lum / 10000.) as f32,
+            (max_out / 10000.) as f32,
+        )
+    }
+
     fn tonemap_uniforms(
         enabled: bool,
         max_in: f64,
@@ -637,6 +657,8 @@ impl FrameBlendState {
     /// capture buffers.
     pub fn uniforms_for_content(frame: &GlesFrame, content: ContentColor) -> Vec<Uniform<'static>> {
         let (hdr_pq, scale, max_luminance) = Self::values_from_frame(frame);
+        Self::uniforms_for_content_values(hdr_pq, scale, max_luminance, content)
+    }
 
     fn uniforms_for_content_values(
         hdr_pq: bool,

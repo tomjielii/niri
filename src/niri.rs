@@ -29,7 +29,6 @@ use smithay::backend::renderer::damage::OutputDamageTracker;
 use smithay::backend::renderer::element::memory::{
     MemoryRenderBuffer, MemoryRenderBufferRenderElement,
 };
-use smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement;
 use smithay::backend::renderer::element::utils::{
     select_dmabuf_feedback, CropRenderElement, Relocate, RelocateRenderElement,
     RescaleRenderElement,
@@ -83,7 +82,8 @@ use smithay::utils::{
 use smithay::wayland::background_effect::BackgroundEffectState;
 use smithay::wayland::color::management::{
     get_surface_description, ColorManagementState, ColorManagementSurfaceCachedState, Feature,
-    ImageDescription, Primaries as CmPrimaries, PrimariesOption as CmPrimariesOption, RenderIntent,
+    ImageDescription, Primaries as CmPrimaries, PrimariesOption as CmPrimariesOption,
+    RenderIntent as CmRenderIntent,
     TransferFunction as CmTransferFunction,
 };
 use smithay::wayland::compositor::{
@@ -174,7 +174,6 @@ use crate::protocols::gamma_control::GammaControlManagerState;
 use crate::protocols::mutter_x11_interop::MutterX11InteropManagerState;
 use crate::protocols::output_management::OutputManagementManagerState;
 use crate::protocols::screencopy::{Screencopy, ScreencopyBuffer, ScreencopyManagerState};
-use crate::protocols::virtual_pointer::VirtualPointerManagerState;
 use crate::render_helpers::blend::{
     scanout_color_transform, set_sdr_capture_blend, BlendSurfaceRenderElement, ContentColor,
     DEFAULT_REFERENCE_LUMINANCE,
@@ -3733,7 +3732,7 @@ impl Niri {
                 Feature::WindowsScrgb,
                 Feature::WindowsBt2100,
             ],
-            [RenderIntent::Perceptual],
+            [CmRenderIntent::Perceptual],
             |_client| true,
         );
         let activation_state = XdgActivationState::new::<State>(&display_handle);
@@ -7267,6 +7266,40 @@ impl Niri {
     /// frame, the fence is merely conservative (this frame's rendering finishes no earlier
     /// than any previous read on the same context), and buffers without a release point
     /// ignore it.
+    pub fn for_each_output_surface(
+        &self,
+        output: &Output,
+        mut f: impl FnMut(&WlSurface, &SurfaceData),
+    ) {
+        let Some(output_state) = self.output_state.get(output) else {
+            return;
+        };
+
+        for mapped in self.layout.windows_for_output(output) {
+            mapped
+                .window
+                .with_surfaces(|surface, states| f(surface, states));
+        }
+
+        for surface in layer_map_for_output(output).layers() {
+            surface.with_surfaces(|surface, states| f(surface, states));
+        }
+
+        if let Some(surface) = &output_state.lock_surface {
+            with_surfaces_surface_tree(surface.wl_surface(), |surface, states| {
+                f(surface, states);
+            });
+        }
+
+        if let Some(surface) = self.dnd_icon.as_ref().map(|icon| &icon.surface) {
+            with_surfaces_surface_tree(surface, |surface, states| f(surface, states));
+        }
+
+        if let CursorImageStatus::Surface(surface) = self.cursor_manager.cursor_image() {
+            with_surfaces_surface_tree(surface, |surface, states| f(surface, states));
+        }
+    }
+
     pub fn stamp_release_fences(&self, output: &Output, fence: BorrowedFd<'_>) {
         self.for_each_output_surface(output, |_, states| {
             if let Some(state) = states.data_map.get::<RendererSurfaceStateUserData>() {
@@ -9750,7 +9783,7 @@ niri_render_elements! {
     PointerRenderElements<R> => {
         Wayland = BlendSurfaceRenderElement<R>,
         NamedPointer = MemoryRenderBufferRenderElement<R>,
-        RescaledWayland = RescaleRenderElement<WaylandSurfaceRenderElement<R>>,
+        RescaledWayland = RescaleRenderElement<BlendSurfaceRenderElement<R>>,
         RescaledNamedPointer = RescaleRenderElement<MemoryRenderBufferRenderElement<R>>,
     }
 }

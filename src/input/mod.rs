@@ -655,7 +655,7 @@ impl State {
                 if this.niri.screen_cast_picker.is_open() {
                     if pressed {
                         this.niri.suppressed_keys.insert(key_code);
-                        let changed = match raw {
+                        let changed = match modified {
                             Some(Keysym::Escape) => {
                                 this.cancel_screen_cast_picker();
                                 false
@@ -798,7 +798,7 @@ impl State {
                     && !this.niri.window_mru_ui.is_open()
                     && !this.niri.screenshot_ui.is_open()
                     && this.niri.config.borrow().grid_overview.default_mod_action
-                    && raw.is_some_and(|raw| mod_key.matches_keysym(raw))
+                    && raw.iter().any(|key| mod_key.matches_keysym(*key))
                     && modifiers == mod_key.to_modifiers()
                 {
                     this.niri
@@ -5959,8 +5959,7 @@ fn hardcoded_overview_bind(key: Keysym, mods: Modifiers) -> Option<Bind> {
     })
 }
 
-fn hardcoded_grid_overview_bind(raw: Keysym, mods: ModifiersState) -> Option<Bind> {
-    let mods = modifiers_from_state(mods);
+fn hardcoded_grid_overview_bind(raw: Keysym, mods: Modifiers) -> Option<Bind> {
     if !mods.is_empty() {
         return None;
     }
